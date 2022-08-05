@@ -1,0 +1,144 @@
+---
+title: "IXIS Data challenge"
+author: "Kevin Duan"
+date: "7/30/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(openxlsx)
+library(ggplot2)
+library(lubridate)
+```
+
+## Data Acquisition
+
+```{r}
+#acquire the data from csv
+sessionCounts <- read.csv("C:/Users/Kevin Duan/Downloads/DataAnalyst_Ecom_data_sessionCounts.csv")
+
+cart <- read.csv("C:/Users/Kevin Duan/Downloads/DataAnalyst_Ecom_data_addsToCart.csv")
+```
+
+## Data Exploration
+
+
+```{r exploration}
+head(sessionCounts)
+head(cart)
+
+#change the date variable to date datatype
+sessionCounts$dim_date <- as.Date(sessionCounts$dim_date, format = "%m/%d/%y")
+```
+The datasets contain 6 columns. The data set includes:
+
+* `dim_browser`(categorical) which identifies the browser used
+* `dim_deviceCategory` (categorical) which identifies device used
+* `dim_date` (date) which identifies date site was accessed or date of transaction(?)
+* `sessions`(int) which shows how many sessions the user was on the site 
+* `transactions`(int) which signifies transactions made
+* `QTY` (int) which shows the amount purchased
+* `addsToCart` (int) shows the quantity items were added to cart on the site. 
+* `dim_year` and `dim_month` are self explanatory
+
+From the dataset, explore to determine distribution and look for any missing values/outliers
+
+
+```{r exploration2}
+#explore the distribution of the quantitative features
+summary(sessionCounts[,c(3:6)])
+
+#explore the distributions of the categorical features
+table(sessionCounts$dim_browser, sessionCounts$dim_deviceCategory)
+
+#the table version is difficult to see because of so many different browsers, we plot the data instead to visualize it.
+ggplot(sessionCounts, aes(x= `dim_browser`)) + 
+  geom_bar() +
+  xlab("Browser types") +
+  theme(
+    panel.background = element_blank(),
+    axis.text.x = element_text(angle = 90,hjust =0.95, vjust = 0.5)
+  ) +
+  coord_flip()
+
+prop.table(table(sessionCounts$dim_deviceCategory))
+length(unique(sessionCounts$dim_browser))
+unique(sessionCounts$dim_browser)
+sessionCounts %>% filter(dim_browser == c( "DESKTOP"))
+
+
+#We also explore the cart dataset as well
+summary(cart[3])
+
+```
+
+From the exploration above, we found that
+
+* the data ranges from 7/1/12 to 06/30/13 
+* the `sessions` data is right skewed and has a large maximum which largely affects the mean. The `transactions` and `QTY` data follow a similar trend.
+* There are many different browsers used (**57**): some repeating, some which aren't browsers, and some which aren't labelled.
+* the visitation of the sights are mobile (**39%**), desktop (**35%**), and tablet(**26%**) in order of most sessions to the least.
+* The site got the most cart additions on 8/2012, and the least on the last month 06/2013.
+
+Based on the exploration done thus far, we could assume that the website has difficulty completing transactions, other than some large outliers.
+We may want to pivot the device feature into separate columns. We also may want to combine/delete some of the browser types as they are duplicates or not usable.
+
+## Data transformation and Cleaning
+
+```{r transformation}
+(sheet1 <- sessionCounts %>%
+   #remove the (notset) and error browser types. After looking on google analytics (GA) it said that these could be tag errors. 
+  filter(!(dim_browser %in% c('(not set)','error'))) %>%
+  #subset the data to the relevant columns for the client
+  select(dim_deviceCategory, dim_date, sessions, transactions, QTY) %>%
+  #aggregate the data by months and devices used
+  group_by(month = lubridate::floor_date(dim_date, 'month'), device = dim_deviceCategory) %>%
+   summarise(sessions = sum(sessions), QTY = sum(QTY), transactions = sum(transactions), ECR = sum(transactions)/sum(sessions))
+)
+
+(newCounts <- sessionCounts %>%
+    #use only the last 2 month's data
+    #also remove the (notset) and error browser types
+    filter(dim_date >= "2013-05-01" & dim_date <= "2013-06-30" & !(dim_browser %in% c('(not set)','error'))) %>%
+    
+  #group the data set by months to be joined with the carts data
+  group_by(date = lubridate::floor_date(dim_date, 'month')) %>%
+    
+    #sum up all of the metrics by month
+    summarise(sessions = sum(sessions), QTY = sum(QTY), transactions = sum(transactions)) %>%
+    
+    #arrange the order of new tibble by month, and then sessions
+    arrange(date, desc(sessions))%>%
+    #rename the month values so they can be joined with the carts dataset
+    mutate(date=as.character(format(date, "%Y-%m")))
+)
+    
+#join the columns to format them the same as the sheet 2 table
+(joinCart <- cart %>%
+    unite(date, c(dim_year, dim_month), sep = "-0" ) %>%
+    filter(date %in% c("2013-05","2013-06"))
+)  
+
+#create a relative difference function
+rdiff <- function(x){
+  reldiff<- diff(x)/x[-length(x)]
+}
+
+#join the two tables
+(sheet2 <- merge(newCounts, joinCart, all.x = TRUE) %>%
+  #create rows that measure the difference between the two months
+  bind_rows(summarise(.,
+                      across(where(is.numeric),diff),
+                      across(where(is.character), ~"absdiff")), 
+            summarise(.,
+                      across(where(is.numeric), rdiff),
+                      across(where(is.character), ~"reldiff")))
+)
+```
+```{r}
+#export the two tables as excel worksheets
+ixisworksheet <- list('sheet1' = sheet1, 'sheet2' = sheet2)
+write.xlsx(ixisworksheet, file = "C:/Users/Kevin Duan/Desktop/IXISDataScienceChallenge.xlsx")
+```
