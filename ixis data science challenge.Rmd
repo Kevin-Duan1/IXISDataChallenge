@@ -11,6 +11,7 @@ library(tidyverse)
 library(openxlsx)
 library(ggplot2)
 library(lubridate)
+library(reshape2)
 ```
 
 ## Data Acquisition
@@ -140,5 +141,16 @@ rdiff <- function(x){
 ```{r}
 #export the two tables as excel worksheets
 ixisworksheet <- list('sheet1' = sheet1, 'sheet2' = sheet2)
-write.xlsx(ixisworksheet, file = "C:/Users/Kevin Duan/Desktop/IXISDataScienceChallenge.xlsx")
+write.xlsx(ixisworksheet, file = "C:/Users/Kevin Duan/Documents/GitHub/IXISDataChallenge/IXISDataChallenge.xlsx")
+```
+
+
+```{r echo=FALSE}
+sheet1 %>% ggplot(aes(x = month, y=(ECR), color = device)) + 
+  geom_line(size = 1.2) + 
+  labs(x = "Months", y = "ECR", color = "Devices")+
+theme(panel.background = element_blank(),
+      panel.grid.major.x = element_line(colour = "lightgray"),
+      ) +
+  scale_x_date(breaks = (function(x) seq.Date(from = as.Date("2012-07-01"), to=as.Date("2013-06-30") , by="2 months")))
 ```
